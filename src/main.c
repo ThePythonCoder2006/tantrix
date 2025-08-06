@@ -15,7 +15,10 @@ Color color_conv[4] = {
   {.r=253, .g=249, .b=0  , .a=255}
 };
 
-// typedef tile tile_grid[ (2*TILE_COUNT + 1) * (2*TILE_COUNT + 1)];
+#define ID_GRID_SIDE_LENGTH (2 * TILE_COUNT + 1)
+typedef int64_t id_grid[ ID_GRID_SIDE_LENGTH * ID_GRID_SIDE_LENGTH ];
+
+#define ID_GRID_AT(grid, x, y) ((grid)[ ID_GRID_SIDE_LENGTH * ((x) + TILE_COUNT) + ((y) + TILE_COUNT)])
 
 #define COS_2PI_OVER_12 0.86602540378444
 
@@ -25,12 +28,12 @@ const double grid_step = 2 * radius * COS_2PI_OVER_12;
 const double arc_thickness = 4.0;
 const double arc_pad = 4;
 
-int64_t tile_at_pos(tile *tiles, int64_t x, int64_t y);
-uint8_t tile_fits(tile *tiles, size_t tile_idx);
-uint8_t find_solution(tile tiles[TILE_COUNT], size_t tile_count);
+int64_t tile_at_pos_(tile *tiles, int64_t x, int64_t y);
+uint8_t tile_fits_(id_grid grid, tile *tiles, size_t tile_idx);
+uint8_t find_solution(id_grid, tile tiles[TILE_COUNT], size_t tile_count);
+uint8_t verify_solution(id_grid grid, tile tiles[TILE_COUNT], size_t tile_count);
 void DrawTile(tile t);
 void DrawTiles(tile tiles[TILE_COUNT], size_t tile_count);
-uint8_t verify_solution(tile tiles[TILE_COUNT], size_t tile_count);
 Vector2 TileGetWorldPos(tile t);
 
 #define CAMERA_SPEED 4.0
@@ -43,9 +46,16 @@ int main(int argc, char** argv)
   printf("How many pieces do you want to solve for ? ");
   scanf("%zu", &difficulty);
 
-  printf("%u\n", find_solution(tiles, difficulty));
+  id_grid grid = {0};
 
-  printf("is %s a solution\n", verify_solution(tiles, difficulty) ? "actually" : "not");
+  for (int64_t x = -TILE_COUNT; x <= TILE_COUNT; ++x)
+    for (int64_t y = -TILE_COUNT; y <= TILE_COUNT; ++y)
+      ID_GRID_AT(grid, x, y) = -1;
+
+
+  printf("%u\n", find_solution(grid, tiles, difficulty));
+
+  printf("is %s a solution\n", verify_solution(grid, tiles, difficulty) ? "actually" : "not");
 
   const int screenWidth = 800, screenHeight = 400;
 
@@ -97,7 +107,7 @@ int main(int argc, char** argv)
  * returns the index of the tile in tiles which pos is (x, y)
  * returns negative if there was no tile at pos
  */
-int64_t tile_at_pos(tile *tiles, int64_t x, int64_t y)
+int64_t tile_at_pos_(tile *tiles, int64_t x, int64_t y)
 {
   for (size_t i = 0; i < TILE_COUNT; ++i)
     if (tiles[i].x == x && tiles[i].y == y && tiles[i].used)
@@ -106,7 +116,7 @@ int64_t tile_at_pos(tile *tiles, int64_t x, int64_t y)
   return -1;
 }
 
-uint8_t tile_fits(tile *tiles, size_t tile_idx)
+uint8_t tile_fits_(id_grid grid, tile *tiles, size_t tile_idx)
 {
   for (uint8_t side = 0; side < SIDE_COUNT; ++side)
   {
@@ -114,9 +124,8 @@ uint8_t tile_fits(tile *tiles, size_t tile_idx)
 
     const int64_t x = tiles[tile_idx].x + adj[side].x;
     const int64_t y = tiles[tile_idx].y + adj[side].y;
-    int64_t neighboor = tile_at_pos(tiles, x, y);
+    int64_t neighboor = ID_GRID_AT(grid, x, y);
     if (neighboor < 0) continue; // there is no neighboor there : will always fit
-    
     if (TILE_GET_COLOR(tiles[tile_idx], side) != TILE_GET_COLOR(tiles[neighboor], symetric_side))
       return 0;
   }
@@ -125,67 +134,12 @@ uint8_t tile_fits(tile *tiles, size_t tile_idx)
 }
 
 /*
- * returns non-zero uppon success
+ * find the side(s) with the back color
+ * return negative in case of failure : if no open side had color c
+ * The only case where a tile might have two of its sides back colored and open is the first tile
+ * we only need to find the first instance as the other will be checked later when the first one gets used by other piece
  */
-uint8_t find_solution_inside_old(tile tiles[TILE_COUNT], size_t tile_count, size_t placed_tiles[TILE_COUNT], size_t placed_count)
-{
-  if (placed_count == tile_count)
-    return verify_solution(tiles, tile_count);
-
-  /*
-   * first two for loop iterate over all the open side around the already placed tiles
-   * last two iterate over all the possible tiles and their rotations which can fit
-   */
-  for (size_t i = 0; i < tile_count; ++i)
-  {
-    if (!tiles[i].used) continue;
-
-    for (uint8_t side = 0; side < SIDE_COUNT; ++side)
-    {
-      const int64_t x = tiles[i].x + adj[side].x;
-      const int64_t y = tiles[i].y + adj[side].y;
-      int64_t neighboor = tile_at_pos(tiles, x, y);
-      if (neighboor >= 0) continue; // there is already a tile there
-
-      for (size_t tile = 0; tile < tile_count; ++tile)
-      {
-        if (tiles[tile].used) continue;
-
-        tiles[tile].x = x;
-        tiles[tile].y = y;
-        tiles[tile].used = 1;
-        placed_tiles[placed_count] = tile;
-
-        for (uint8_t rot = 0; rot < SIDE_COUNT; ++rot)
-        {
-          tiles[tile].rotation = rot;
-
-          if (!tile_fits(tiles, tile)) continue;
-
-          if (find_solution_inside_old(tiles, tile_count, placed_tiles, placed_count + 1))
-            return 1; // we found a solution
-        }
-
-        // reset all the tiles placed after
-        for (size_t j = placed_count; j < tile_count; ++j)
-        {
-          tiles[j].used = 0;
-          placed_tiles[j] = 0;
-        }
-      }
-    }
-  }
-
-  return 0;
-}
-
-    /*
-     * find the side(s) with the back color
-     * return negative in case of failure : if no open side had color c
-     * The only case where a tile might have two of its sides back colored and open is the first tile
-     * we only need to find the first instance as the other will be checked later when the first one gets used by other piece
-     */
-int8_t find_colored_side(tile tiles[TILE_COUNT], size_t tile_idx, color c)
+int8_t find_colored_side(id_grid grid, tile tiles[TILE_COUNT], size_t tile_idx, color c)
 {
     for (uint8_t side = 0; side < SIDE_COUNT; ++side)
     {
@@ -193,8 +147,8 @@ int8_t find_colored_side(tile tiles[TILE_COUNT], size_t tile_idx, color c)
         continue;
       const int64_t x = tiles[tile_idx].x + adj[side].x;
       const int64_t y = tiles[tile_idx].y + adj[side].y;
-      int64_t neighboor = tile_at_pos(tiles, x, y);
-      if (neighboor < 0) // space is open
+      int64_t neighboor = ID_GRID_AT(grid, x, y);
+      if (neighboor < 0)
         return side;
     }
 
@@ -202,12 +156,12 @@ int8_t find_colored_side(tile tiles[TILE_COUNT], size_t tile_idx, color c)
 }
 
 
-uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t placed_tiles[TILE_COUNT], size_t placed_count)
+uint8_t find_solution_inside(id_grid grid, tile tiles[TILE_COUNT], size_t tile_count, int64_t placed_tiles[TILE_COUNT], size_t placed_count)
 {
   const color back = tiles[tile_count - 1].back;
 
   if (placed_count == tile_count)
-    return verify_solution(tiles, tile_count);
+    return verify_solution(grid, tiles, tile_count);
 
   /*
    * first for loop iterate over all the open side around the already placed tiles
@@ -217,7 +171,7 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
   {
     if (!tiles[i].used) continue;
 
-    int8_t side = find_colored_side(tiles, i, back);
+    int8_t side = find_colored_side(grid, tiles, i, back);
 
     if (side < 0)
       continue; // this piece already has both its back colored side filled
@@ -235,6 +189,7 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
       tiles[tile].y = y;
       tiles[tile].used = 1;
       placed_tiles[placed_count] = tile;
+      ID_GRID_AT(grid, x, y) = tile;
 
       // rot is where the back color is on tiles[tile]
       for (uint8_t rot = 0; rot < SIDE_COUNT; ++rot)
@@ -248,9 +203,9 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
          * We hence need to rotate by (side + 3) % SIDE_COUNT - rot all mode SIDE_COUNT
          */
         tiles[tile].rotation = (side + 3 - rot + SIDE_COUNT) % SIDE_COUNT;
-        if (!tile_fits(tiles, tile)) continue;
+        if (!tile_fits_(grid, tiles, tile)) continue;
 
-        if (find_solution_inside(tiles, tile_count, placed_tiles, placed_count + 1))
+        if (find_solution_inside(grid, tiles, tile_count, placed_tiles, placed_count + 1))
           return 1; // we found a solution
       }
 
@@ -259,6 +214,9 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
       {
         if (placed_tiles[j] < 0) continue;
 
+        ID_GRID_AT(grid,
+            tiles[placed_tiles[j]].x,
+            tiles[placed_tiles[j]].y) = -1;
         tiles[placed_tiles[j]].used = 0;
         placed_tiles[j] = -1;
       }
@@ -272,7 +230,7 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
  * tries to place all of the tiles in `tiles` 
  * return non-zero uppon success
  */
-uint8_t find_solution(tile tiles[TILE_COUNT], size_t tile_count)
+uint8_t find_solution(id_grid grid, tile tiles[TILE_COUNT], size_t tile_count)
 {
   int64_t placed_tiles[TILE_COUNT] = {0};
   
@@ -285,17 +243,18 @@ uint8_t find_solution(tile tiles[TILE_COUNT], size_t tile_count)
   tiles[0].y = 0;
   tiles[0].rotation = 0;
   placed_tiles[0] = 0;
+  ID_GRID_AT(grid, 0, 0) = 0;
 
-  return find_solution_inside(tiles, tile_count, placed_tiles, 1);
+  return find_solution_inside(grid, tiles, tile_count, placed_tiles, 1);
 }
 
 #define VERIFY_LOOP_START_TILE 0
 
-uint8_t verify_solution(tile tiles[TILE_COUNT], size_t tile_count)
+uint8_t verify_solution(id_grid grid, tile tiles[TILE_COUNT], size_t tile_count)
 {
   // sanity check
   for (size_t i = 0; i < tile_count; ++i)
-    if (!tile_fits(tiles, i)) return 0;
+    if (!tile_fits_(grid, tiles, i)) return 0;
 
   // continuous check
   color back = tiles[tile_count - 1].back;
@@ -309,7 +268,7 @@ uint8_t verify_solution(tile tiles[TILE_COUNT], size_t tile_count)
   for (side = 0; side < SIDE_COUNT &&
       TILE_GET_COLOR(tiles[curr], side) != back; ++side) ;
 
-  curr = tile_at_pos(tiles,
+  curr = ID_GRID_AT(grid,
       tiles[curr].x + adj[side].x,
       tiles[curr].y + adj[side].y
       );
@@ -322,7 +281,7 @@ uint8_t verify_solution(tile tiles[TILE_COUNT], size_t tile_count)
     for (side = 0; side < SIDE_COUNT; ++side)
       if (side != arrived_from && TILE_GET_COLOR(tiles[curr], side) == back)
         break;
-    curr = tile_at_pos(tiles,
+    curr = ID_GRID_AT(grid,
         tiles[curr].x + adj[side].x,
         tiles[curr].y + adj[side].y
         );
