@@ -8,7 +8,7 @@
 #define ODIR SRCDIR "obj/"
 #define BINDIR "./bin/"
 #define IDIR "./include"
-#define TRGT BINDIR "main.out"
+#define TRGT BINDIR "main"
 #define SRC SRCDIR "main.c"
 
 int main(int argc, char **argv)
