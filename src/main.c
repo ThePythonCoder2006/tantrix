@@ -41,32 +41,6 @@ int main(int argc, char** argv)
   const size_t difficulty = 12;
 
   printf("%u\n", find_solution(tiles, difficulty));
-  /*
-  tiles[0].x = 0;
-  tiles[0].y = 0;
-  tiles[0].rotation = 0;
-  tiles[0].used = 1;
-
-  tiles[1].x = 0;
-  tiles[1].y = 1;
-  tiles[1].rotation = 4;
-  tiles[1].used = 1;
-
-  tiles[2].x = -2;
-  tiles[2].y = 1;
-  tiles[2].rotation = 3;
-  tiles[2].used = 1;
-
-  tiles[3].x = -1;
-  tiles[3].y = 0;
-  tiles[3].rotation = 2;
-  tiles[3].used = 1;
-
-  tiles[4].x = -1;
-  tiles[4].y = 1;
-  tiles[4].rotation = 1;
-  tiles[4].used = 1;
-  */
 
   printf("is %s a solution\n", verify_solution(tiles, difficulty) ? "actually" : "not");
 
