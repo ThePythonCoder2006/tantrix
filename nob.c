@@ -26,7 +26,7 @@ int main(int argc, char **argv)
   nob_cmd_append(&cmd, "-c");
   nob_cc_output(&cmd, ODIR "tile.o");
   nob_cc_inputs(&cmd, SRCDIR "tile.c");
-  nob_cmd_append(&cmd, "-I" IDIR);
+  nob_cmd_append(&cmd, "-I" IDIR, "-pg");
   nob_cc_flags(&cmd);
 
   if (!nob_cmd_run_sync_and_reset(&cmd)) return 1;
@@ -35,6 +35,7 @@ int main(int argc, char **argv)
   nob_cc_output(&cmd, TRGT);
   nob_cc_inputs(&cmd, SRC, ODIR "tile.o");
   nob_cc_flags(&cmd);
+  // nob_cmd_append(&cmd, "-ggdb", "-pg");
   nob_cmd_append(&cmd, "-O3");
   nob_cmd_append(&cmd, "-I" IDIR, "-lraylib");
 #ifndef _WIN32

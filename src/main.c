@@ -10,10 +10,12 @@
 
 Color color_conv[4] = {
   {.r=230, .g=41 , .b=55 , .a=255},
-  {0  , 121, 241, 255},
-  {0  , 228, 48  , 255},
-  {253, 249, 0  , 255}
+  {.r=0  , .g=121, .b=241, .a=255},
+  {.r=0  , .g=228, .b=48 , .a=255},
+  {.r=253, .g=249, .b=0  , .a=255}
 };
+
+// typedef tile tile_grid[ (2*TILE_COUNT + 1) * (2*TILE_COUNT + 1)];
 
 #define COS_2PI_OVER_12 0.86602540378444
 
@@ -22,7 +24,6 @@ const double pad = 2;
 const double grid_step = 2 * radius * COS_2PI_OVER_12;
 const double arc_thickness = 4.0;
 const double arc_pad = 4;
-
 
 int64_t tile_at_pos(tile *tiles, int64_t x, int64_t y);
 uint8_t tile_fits(tile *tiles, size_t tile_idx);
@@ -38,21 +39,13 @@ int main(int argc, char** argv)
 {
   (void) argc, (void) argv;
 
-  const size_t difficulty = 12;
+  size_t difficulty = 12;
+  printf("How many pieces do you want to solve for ? ");
+  scanf("%zu", &difficulty);
 
   printf("%u\n", find_solution(tiles, difficulty));
 
   printf("is %s a solution\n", verify_solution(tiles, difficulty) ? "actually" : "not");
-
-  /*
-  for (size_t i = 0; i < difficulty; ++i)
-  {
-    tiles[i].x = i;
-    tiles[i].y = 0;
-    tiles[i].rotation = 0;
-    tiles[i].used = 1;
-  }
-  */
 
   const int screenWidth = 800, screenHeight = 400;
 
@@ -72,6 +65,16 @@ int main(int argc, char** argv)
     if (IsKeyDown(KEY_D)) camera.target.x += CAMERA_SPEED;
     if (IsKeyDown(KEY_W)) camera.target.y -= CAMERA_SPEED;
     if (IsKeyDown(KEY_S)) camera.target.y += CAMERA_SPEED;
+    if (IsKeyDown(KEY_Q)) camera.rotation += CAMERA_SPEED;
+    if (IsKeyDown(KEY_E)) camera.rotation -= CAMERA_SPEED;
+    
+    camera.zoom = expf(logf(camera.zoom) + (float)GetMouseWheelMove() * 0.1f);
+
+    if (IsKeyPressed(KEY_R))
+    {
+      camera.rotation = 0;
+      camera.zoom = 1.0;
+    }
 
     BeginDrawing();
     ClearBackground(RAYWHITE);
@@ -176,6 +179,29 @@ uint8_t find_solution_inside_old(tile tiles[TILE_COUNT], size_t tile_count, size
   return 0;
 }
 
+    /*
+     * find the side(s) with the back color
+     * return negative in case of failure : if no open side had color c
+     * The only case where a tile might have two of its sides back colored and open is the first tile
+     * we only need to find the first instance as the other will be checked later when the first one gets used by other piece
+     */
+int8_t find_colored_side(tile tiles[TILE_COUNT], size_t tile_idx, color c)
+{
+    for (uint8_t side = 0; side < SIDE_COUNT; ++side)
+    {
+      if (TILE_GET_COLOR(tiles[tile_idx], side) != c)
+        continue;
+      const int64_t x = tiles[tile_idx].x + adj[side].x;
+      const int64_t y = tiles[tile_idx].y + adj[side].y;
+      int64_t neighboor = tile_at_pos(tiles, x, y);
+      if (neighboor < 0) // space is open
+        return side;
+    }
+
+    return -1;
+}
+
+
 uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t placed_tiles[TILE_COUNT], size_t placed_count)
 {
   const color back = tiles[tile_count - 1].back;
@@ -184,50 +210,44 @@ uint8_t find_solution_inside(tile tiles[TILE_COUNT], size_t tile_count, int64_t 
     return verify_solution(tiles, tile_count);
 
   /*
-   * first two for loop iterate over all the open side around the already placed tiles
+   * first for loop iterate over all the open side around the already placed tiles
    * last two iterate over all the possible tiles and their rotations which can fit
    */
   for (size_t i = 0; i < tile_count; ++i)
   {
     if (!tiles[i].used) continue;
 
-    /*
-     * find the side(s) with the back color
-     * The only case where a tile might have two of its sides back colored and open is the first tile
-     * we only need to find the first instance as the other will be checked later when the first one gets used by other piece
-     */
-    int8_t found = -1;
-    for (uint8_t side = 0; side < SIDE_COUNT; ++side)
-    {
-      const int64_t x = tiles[i].x + adj[side].x;
-      const int64_t y = tiles[i].y + adj[side].y;
-      int64_t neighboor = tile_at_pos(tiles, x, y);
-      if (neighboor >= 0) continue; // we are looking for the side with the back color which is not yet populated
-      if (TILE_GET_COLOR(tiles[i], side) == back)
-      {
-        found = side;
-        break;
-      }
-    }
+    int8_t side = find_colored_side(tiles, i, back);
 
-    if (found < 0)
+    if (side < 0)
       continue; // this piece already has both its back colored side filled
-    const int64_t x = tiles[i].x + adj[found].x;
-    const int64_t y = tiles[i].y + adj[found].y;
+    const int64_t x = tiles[i].x + adj[side].x;
+    const int64_t y = tiles[i].y + adj[side].y;
 
     for (size_t tile = 0; tile < tile_count; ++tile)
     {
       if (tiles[tile].used) continue;
+
+      if (placed_count == 1)
+        printf("%zu\n", tile);
 
       tiles[tile].x = x;
       tiles[tile].y = y;
       tiles[tile].used = 1;
       placed_tiles[placed_count] = tile;
 
+      // rot is where the back color is on tiles[tile]
       for (uint8_t rot = 0; rot < SIDE_COUNT; ++rot)
       {
-        tiles[tile].rotation = rot;
+        tiles[tile].rotation = 0;
+        if (TILE_GET_COLOR(tiles[tile], rot) != back)
+          continue;
 
+        /*
+         * we want to aligne the color at rot with (side + 3) % SIDE_COUNT
+         * We hence need to rotate by (side + 3) % SIDE_COUNT - rot all mode SIDE_COUNT
+         */
+        tiles[tile].rotation = (side + 3 - rot + SIDE_COUNT) % SIDE_COUNT;
         if (!tile_fits(tiles, tile)) continue;
 
         if (find_solution_inside(tiles, tile_count, placed_tiles, placed_count + 1))
